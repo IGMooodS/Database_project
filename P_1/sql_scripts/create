@@ -1,0 +1,50 @@
+DROP SCHEMA IF EXISTS philately CASCADE ;
+CREATE SCHEMA philately ;
+SET search_path TO philately ;
+
+CREATE TABLE fp_types (
+fp_type_id SERIAL PRIMARY KEY ,
+type_name VARCHAR (100) NOT NULL UNIQUE
+) ;
+
+CREATE TABLE regions (
+region_id SERIAL PRIMARY KEY ,
+region_name VARCHAR (120) NOT NULL UNIQUE
+) ;
+
+CREATE TABLE periods (
+period_id SERIAL PRIMARY KEY ,
+period_name VARCHAR (20) NOT NULL UNIQUE ,
+days_count INT NOT NULL CHECK ( days_count > 0)
+) ;
+
+CREATE TABLE ufps (
+ufps_id SERIAL PRIMARY KEY ,
+ufps_name VARCHAR (150) NOT NULL UNIQUE ,
+region_id INT NOT NULL REFERENCES regions ( region_id ) ,
+address VARCHAR (255)
+) ;
+
+CREATE TABLE philatelic_products (
+product_id SERIAL PRIMARY KEY ,
+fp_type_id INT NOT NULL REFERENCES fp_types ( fp_type_id ) ,
+product_name VARCHAR (180) NOT NULL ,
+issue_date DATE ,
+nominal_value NUMERIC (10 ,2) CHECK ( nominal_value >= 0)
+) ;
+
+CREATE TABLE requests (
+request_id SERIAL PRIMARY KEY ,
+ufps_id INT NOT NULL REFERENCES ufps ( ufps_id ) ,
+request_date DATE NOT NULL ,
+period_id INT REFERENCES periods ( period_id ) ,
+status VARCHAR (30) NOT NULL DEFAULT 'new'
+) ;
+
+CREATE TABLE request_items (
+request_item_id SERIAL PRIMARY KEY ,
+request_id INT NOT NULL REFERENCES requests ( request_id ) ON DELETE CASCADE ,
+product_id INT NOT NULL REFERENCES philatelic_products ( product_id ) ,
+quantity INT NOT NULL CHECK ( quantity > 0)
+) ;
+

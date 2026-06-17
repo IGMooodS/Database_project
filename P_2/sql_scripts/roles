@@ -1,0 +1,141 @@
+SET search_path TO philately ;
+
+-- Групповые роли (без LOGIN)
+CREATE ROLE role_fa_managers NOLOGIN;
+CREATE ROLE role_ufps_heads  NOLOGIN;
+CREATE ROLE role_reg_analyst NOLOGIN;
+CREATE ROLE role_order_ops   NOLOGIN;
+
+-- Примеры пользователей
+CREATE ROLE u_fa_mgr_1   LOGIN PASSWORD '1';
+CREATE ROLE u_ufps_head_1 LOGIN PASSWORD '1';
+CREATE ROLE u_analyst_1  LOGIN PASSWORD '1';
+CREATE ROLE u_operator_1 LOGIN PASSWORD '1';
+
+-- Назначение групповых ролей пользователям
+GRANT role_fa_managers TO u_fa_mgr_1;
+GRANT role_ufps_heads  TO u_ufps_head_1;
+GRANT role_reg_analyst TO u_analyst_1;
+GRANT role_order_ops   TO u_operator_1;
+
+
+-- Разрешаю группам пользоваться схемой (иначе они не смогут обращаться к объектам)
+GRANT USAGE ON SCHEMA philately TO
+  role_fa_managers, role_ufps_heads, role_reg_analyst, role_order_ops;
+
+-- Роль-владелец
+CREATE ROLE philately_owner NOLOGIN;
+
+-- Даю владельцу нужные права чтения на базовые таблицы
+GRANT USAGE ON SCHEMA philately TO philately_owner;
+GRANT SELECT ON philately.fp_types,
+              philately.philatelic_products,
+              philately.request_items,
+              philately.requests,
+              philately.ufps
+TO philately_owner;
+
+-- Представление для Группы 1
+-- Какие виды ФП наиболее/наименее востребованы?
+-- Суммарное количество заказанных единиц (quantity) по типам ФП
+CREATE OR REPLACE VIEW philately.v_fa_fp_type_demand AS
+SELECT
+  t.fp_type_id,
+  t.type_name,
+  SUM(ri.quantity) AS total_qty
+FROM philately.fp_types t
+JOIN philately.philatelic_products p
+  ON p.fp_type_id = t.fp_type_id
+JOIN philately.request_items ri
+  ON ri.product_id = p.product_id
+JOIN philately.requests r
+  ON r.request_id = ri.request_id
+GROUP BY t.fp_type_id, t.type_name
+ORDER BY SUM(ri.quantity) DESC;
+
+
+-- Какие УФПС заказывают те же позиции ФП, что и наше УФПС?
+CREATE OR REPLACE VIEW philately.v_ufps_same_products AS
+SELECT DISTINCT
+  r1.ufps_id AS our_ufps_id,
+  r2.ufps_id AS other_ufps_id,
+  ri1.product_id
+FROM philately.requests r1
+JOIN philately.request_items ri1
+  ON ri1.request_id = r1.request_id
+JOIN philately.requests r2
+  ON r2.ufps_id <> r1.ufps_id
+JOIN philately.request_items ri2
+  ON ri2.request_id = r2.request_id
+ AND ri2.product_id = ri1.product_id;
+
+
+-- Какие УФПС региона не подавали заявок за последние 3 месяца?
+CREATE OR REPLACE VIEW philately.v_region_ufps_without_requests_3_months AS
+SELECT
+  u.region_id,
+  u.ufps_id,
+  u.ufps_name
+FROM philately.ufps u
+LEFT JOIN philately.requests r
+  ON r.ufps_id = u.ufps_id
+ AND r.request_date >= (current_date - INTERVAL '3 months')
+WHERE r.request_id IS NULL;
+
+
+-- Какие заявки на заданную ФП имеют количество не выше порога?
+CREATE OR REPLACE VIEW philately.v_ops_requests_with_qty AS
+SELECT
+  r.request_id,
+  r.ufps_id,
+  r.request_date,
+  r.status,
+  ri.product_id,
+  ri.quantity
+FROM philately.requests r
+JOIN philately.request_items ri
+  ON ri.request_id = r.request_id;
+
+
+GRANT SELECT ON philately.v_fa_fp_type_demand TO role_fa_managers;
+GRANT SELECT ON philately.v_ufps_same_products TO role_ufps_heads;
+GRANT SELECT ON philately.v_region_ufps_without_requests_3_months TO role_reg_analyst;
+GRANT SELECT ON philately.v_ops_requests_with_qty TO role_order_ops;
+
+
+SET ROLE u_fa_mgr_1;
+
+SELECT * FROM philately.v_fa_fp_type_demand
+ORDER BY total_qty DESC;
+
+SELECT * FROM philately.requests;
+RESET ROLE;
+
+
+SET ROLE u_ufps_head_1;
+
+SELECT * FROM philately.v_ufps_same_products
+WHERE our_ufps_id = 1;
+
+SELECT * FROM philately.philatelic_products;
+RESET ROLE;
+
+
+SET ROLE u_analyst_1;
+
+SELECT * FROM philately.v_region_ufps_without_requests_3_months
+WHERE region_id = 5;
+
+UPDATE philately.regions SET region_name = 'X' WHERE region_id = 1;
+RESET ROLE;
+
+DELETE FROM philately.requests WHERE request_id = 1;
+RESET ROLE;
+
+SET ROLE u_operator_1;
+
+SELECT * FROM philately.v_ops_requests_with_qty
+WHERE product_id = 10 AND quantity <= 10;
+
+DELETE FROM philately.requests WHERE request_id = 1;
+RESET ROLE;

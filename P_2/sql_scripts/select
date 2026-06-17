@@ -1,0 +1,310 @@
+CREATE OR REPLACE FUNCTION philately.get_ufps_by_fp_type(
+    p_fp_type_id INTEGER
+)
+RETURNS TABLE (
+    ufps_name VARCHAR,
+    address VARCHAR
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT DISTINCT
+        u.ufps_name,
+        u.address
+    FROM philately.ufps u
+    WHERE EXISTS (
+        SELECT 1
+        FROM philately.requests r
+        JOIN philately.request_items ri
+            ON r.request_id = ri.request_id
+        JOIN philately.philatelic_products pp
+            ON pp.product_id = ri.product_id
+        WHERE r.ufps_id = u.ufps_id
+          AND pp.fp_type_id = p_fp_type_id
+    );
+END;
+$$;
+
+
+SELECT *
+FROM philately.get_ufps_by_fp_type(10);
+
+
+
+
+
+CREATE OR REPLACE VIEW philately.v_inactive_ufps_last_3_months AS
+SELECT
+    u.ufps_id,
+    u.ufps_name,
+    u.address
+FROM philately.ufps u
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM philately.requests r
+    WHERE r.ufps_id = u.ufps_id
+      AND r.request_date >= CURRENT_DATE - INTERVAL '3 months'
+);
+
+
+SELECT *
+FROM philately.v_inactive_ufps_last_3_months;
+
+
+
+
+
+CREATE OR REPLACE FUNCTION philately.get_same_fp_orders(
+    p_ufps_id INTEGER,
+    p_request_date DATE
+)
+RETURNS TABLE (
+    ufps_name VARCHAR,
+    address VARCHAR,
+    product_name VARCHAR,
+    quantity INTEGER
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        u_other.ufps_name,
+        u_other.address,
+        pp_other.product_name,
+        ri_other.quantity
+    FROM philately.ufps u_other
+    JOIN philately.requests r_other
+        ON u_other.ufps_id = r_other.ufps_id
+    JOIN philately.request_items ri_other
+        ON ri_other.request_id = r_other.request_id
+    JOIN philately.philatelic_products pp_other
+        ON pp_other.product_id = ri_other.product_id
+    WHERE r_other.request_date = p_request_date
+      AND u_other.ufps_id <> p_ufps_id
+      AND ri_other.product_id IN (
+            SELECT
+                ri_main.product_id
+            FROM philately.request_items ri_main
+            JOIN philately.requests r_main
+                ON ri_main.request_id = r_main.request_id
+            WHERE r_main.ufps_id = p_ufps_id
+              AND r_main.request_date = p_request_date
+      );
+END;
+$$;
+
+
+SELECT *
+FROM philately.get_same_fp_orders(
+    30,
+    DATE '2026-03-14'
+);
+
+
+
+
+
+CREATE OR REPLACE FUNCTION philately.get_fp_more_than_two_orders(
+    p_ufps_id INTEGER
+)
+RETURNS TABLE (
+    product_name VARCHAR
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        pp.product_name
+    FROM philately.requests r
+    JOIN philately.request_items ri
+        ON r.request_id = ri.request_id
+    JOIN philately.philatelic_products pp
+        ON pp.product_id = ri.product_id
+    WHERE r.ufps_id = p_ufps_id
+    GROUP BY 
+        pp.product_name
+    HAVING COUNT(DISTINCT r.request_id) > 2;
+END;
+$$;
+
+
+SELECT *
+FROM philately.get_fp_more_than_two_orders(20);
+
+
+
+
+
+CREATE OR REPLACE FUNCTION philately.get_ufps_need_no_more_than(
+    p_product_id INTEGER,
+    p_max_quantity INTEGER
+)
+RETURNS TABLE (
+    request_id INTEGER,
+    ufps_name VARCHAR,
+    total_quantity INTEGER,
+    request_date DATE
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        r.request_id,
+        u.ufps_name,
+        SUM(ri.quantity)::INTEGER AS total_quantity,
+        r.request_date
+    FROM philately.ufps u
+    JOIN philately.requests r
+        ON u.ufps_id = r.ufps_id
+    JOIN philately.request_items ri
+        ON r.request_id = ri.request_id
+    WHERE ri.product_id = p_product_id
+    GROUP BY
+        r.request_id,
+        u.ufps_name,
+        r.request_date
+    HAVING SUM(ri.quantity) <= p_max_quantity
+    ORDER BY
+        r.request_date,
+        r.request_id;
+END;
+$$;
+
+
+SELECT *
+FROM philately.get_ufps_need_no_more_than(70, 5);
+
+
+
+
+
+CREATE OR REPLACE FUNCTION philately.get_fp_by_region_last_week(p_region_id INTEGER)
+RETURNS TABLE (
+    ufps_name  VARCHAR,
+    type_name  VARCHAR,
+    quantity   BIGINT
+)
+LANGUAGE sql
+AS $$
+    SELECT
+        u.ufps_name,
+        ft.type_name,
+        SUM(ri.quantity) AS quantity
+    FROM philately.ufps u
+    JOIN philately.requests r
+        ON u.ufps_id = r.ufps_id
+    JOIN philately.request_items ri
+        ON r.request_id = ri.request_id
+    JOIN philately.philatelic_products pp
+        ON ri.product_id = pp.product_id
+    JOIN philately.fp_types ft
+        ON pp.fp_type_id = ft.fp_type_id
+    WHERE u.region_id = p_region_id
+      AND r.request_date >= CURRENT_DATE - INTERVAL '7 days'
+    GROUP BY
+        u.ufps_name,
+        ft.type_name
+    ORDER BY
+        u.ufps_name,
+        ft.type_name;
+$$;
+
+
+SELECT * 
+FROM philately.get_fp_by_region_last_week(85);
+
+
+
+
+
+CREATE OR REPLACE VIEW philately.v_fp_most_and_least_popular AS
+WITH fp_type_number_date AS (
+    SELECT 
+        ft.type_name,
+        COUNT(DISTINCT r.request_id) AS request_number,
+        MAX(r.request_date) AS last_request_date
+    FROM philately.fp_types ft
+    JOIN philately.philatelic_products pp
+        ON pp.fp_type_id = ft.fp_type_id
+    JOIN philately.request_items ri
+        ON ri.product_id = pp.product_id
+    JOIN philately.requests r
+        ON r.request_id = ri.request_id
+    GROUP BY ft.type_name
+),
+ranked AS (
+    SELECT
+        type_name,
+        request_number,
+        last_request_date,
+        ROW_NUMBER() OVER (ORDER BY request_number ASC, type_name) AS min_request_number,
+        ROW_NUMBER() OVER (ORDER BY request_number DESC, type_name) AS max_request_number
+    FROM fp_type_number_date
+)
+SELECT
+    type_name,
+    request_number,
+    last_request_date
+FROM ranked
+WHERE max_request_number = 1
+   OR min_request_number = 1
+ORDER BY request_number DESC;
+
+
+SELECT *
+FROM philately.v_fp_most_and_least_popular;
+
+
+
+
+
+CREATE OR REPLACE FUNCTION philately.get_top_fp_by_type_month(
+    p_fp_type_id INTEGER,
+    p_date DATE
+)
+RETURNS TABLE (
+    product_name VARCHAR,
+    product_percent NUMERIC
+)
+LANGUAGE sql
+AS $$
+WITH filtered AS (
+    SELECT
+        pp.product_name,
+        SUM(ri.quantity) AS product_quantity
+    FROM philately.philatelic_products pp
+    JOIN philately.request_items ri
+        ON pp.product_id = ri.product_id
+    JOIN philately.requests r
+        ON ri.request_id = r.request_id
+    WHERE pp.fp_type_id = p_fp_type_id
+      AND r.request_date >= DATE_TRUNC('month', p_date)
+      AND r.request_date <  (DATE_TRUNC('month', p_date) + INTERVAL '1 month')
+    GROUP BY pp.product_name
+),
+total AS (
+    SELECT SUM(product_quantity) AS total_quantity
+    FROM filtered
+)
+SELECT
+    f.product_name,
+    ROUND(
+        f.product_quantity::NUMERIC * 100 / NULLIF(t.total_quantity, 0),
+        2
+    ) AS product_percent
+FROM filtered f
+CROSS JOIN total t
+ORDER BY f.product_quantity DESC
+LIMIT 3;
+$$;
+
+
+SELECT *
+FROM philately.get_top_fp_by_type_month(14, DATE '2025-10-01');
+
+
+

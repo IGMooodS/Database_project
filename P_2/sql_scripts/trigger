@@ -1,0 +1,102 @@
+SET search_path TO philately ;
+
+CREATE TABLE dict_change_log (
+    log_id SERIAL PRIMARY KEY,
+    table_name VARCHAR(50) NOT NULL,
+    operation  VARCHAR(10) NOT NULL,
+    pk         INTEGER NOT NULL,
+    old_row    JSONB NOT NULL,
+    changed_at TIMESTAMP NOT NULL DEFAULT now(),
+    changed_by VARCHAR(50) NOT NULL DEFAULT current_user
+);
+
+
+
+CREATE OR REPLACE FUNCTION log_dict_changes()
+RETURNS TRIGGER
+AS $$
+DECLARE
+    v_pk INTEGER;
+BEGIN
+    -- TG_ARGV[0] = имя PK-колонки (например 'region_id')
+    -- ->> возвращает TEXT, поэтому привожу к int
+    v_pk := (to_jsonb(OLD) ->> TG_ARGV[0])::int;
+
+    INSERT INTO dict_change_log (
+        table_name,
+        operation,
+        pk,
+        old_row,
+        changed_at,
+        changed_by
+    )
+    VALUES (
+        TG_TABLE_NAME,
+        TG_OP,
+        v_pk,
+        to_jsonb(OLD),
+        now(),
+        current_user
+    );
+
+    IF TG_OP = 'UPDATE' THEN
+        RETURN NEW;
+    ELSIF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+
+CREATE TRIGGER trg_fp_types_log
+BEFORE UPDATE OR DELETE ON fp_types
+FOR EACH ROW
+EXECUTE FUNCTION log_dict_changes('fp_type_id');
+
+
+CREATE TRIGGER trg_regions_log
+BEFORE UPDATE OR DELETE ON regions
+FOR EACH ROW
+EXECUTE FUNCTION log_dict_changes('region_id');
+
+
+CREATE TRIGGER trg_periods_log
+BEFORE UPDATE OR DELETE ON periods
+FOR EACH ROW
+EXECUTE FUNCTION log_dict_changes('period_id');
+
+
+CREATE TRIGGER trg_ufps_log
+BEFORE UPDATE OR DELETE ON ufps
+FOR EACH ROW
+EXECUTE FUNCTION log_dict_changes('ufps_id');
+
+-- Добавлю тестовую запись в справочник типов ф. продукции
+INSERT INTO fp_types (type_name)
+VALUES ('Тестовый тип');
+
+Select *
+FROM fp_types;
+
+-- Изменю запись
+UPDATE fp_types
+SET type_name = 'Тестовый тип (обновлён)'
+WHERE type_name = 'Тестовый тип';
+
+-- Удалю запись
+DELETE FROM fp_types
+WHERE type_name = 'Тестовый тип (обновлён)';
+
+-- Просмотр журнала изменений
+SELECT
+    log_id,
+    table_name,
+    operation,
+    pk,
+    old_row,
+    changed_at,
+    changed_by
+FROM dict_change_log
+ORDER BY log_id DESC;

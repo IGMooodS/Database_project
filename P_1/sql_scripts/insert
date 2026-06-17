@@ -1,0 +1,58 @@
+TRUNCATE TABLE 
+	philately.request_items, 
+	philately.requests, 
+	philately.philatelic_products, 
+	philately.ufps, 
+	philately.periods, 
+	philately.regions, 
+	philately.fp_types 
+RESTART IDENTITY CASCADE;
+
+INSERT INTO philately.fp_types ( type_name ) VALUES
+( 'Marka' ) , ( 'Otkrytka' ) , ( 'Konvert' ) , ( 'Blok' ) , ( 'Kartmaksimum' ) ;
+
+INSERT INTO philately.periods ( period_name , days_count ) VALUES
+( 'Nedelya' , 7) , ( 'Mesyats' , 30) , ( 'Kvartal' , 90) , ( 'God' , 365) ;
+
+INSERT INTO philately.philatelic_products ( fp_type_id , product_name , issue_date , nominal_value ) VALUES
+(1 , 'Marka 80-letie Pobedy' , '2025-05-01' , 80.00) ,
+(1 , 'Marka Kosmos Rossii' , '2025-11-12' , 65.00) ,
+(2 , 'Otkrytka Noviy god 2026' , '2025-12-01' , 45.00) ,
+(3 , 'Konvert Den goroda Moskva' , '2025-09-05' , 35.00) ,
+(4 , 'Blok Istoriya aviatsii' , '2025-03-18' , 120.00) ,
+(5 , 'Kartmaksimum Arktika' , '2025-07-22' , 90.00) ;
+
+INSERT INTO philately.regions (region_id, region_name) VALUES
+(1, 'Moskva'),
+(2, 'Sankt-Peterburg'),
+(3, 'Moskovskaya oblast'),
+(4, 'Respublika Tatarstan'),
+(5, 'Krasnodarskiy kray');
+
+INSERT INTO philately.ufps (ufps_name, region_id, address) VALUES
+('UFPS Moskva', 1, 'Moskva, ul. Tverskaya, 1'),
+('UFPS Sankt-Peterburg', 2, 'Sankt-Peterburg, Nevskiy pr., 10'),
+('UFPS Podmoskovye', 3, 'Mytishchi, ul. Mira, 5'),
+('UFPS Tatarstan', 4, 'Kazan, ul. Baumana, 3'),
+('UFPS Kuban', 5, 'Krasnodar, ul. Krasnaya, 21');
+
+INSERT INTO philately.requests ( ufps_id , request_date , period_id , status ) VALUES
+(1 , '2026-03-02' , 1 , 'new') ,
+(2 , '2026-03-03' , 1 , 'new') ,
+(3 , '2026-02-20' , 2 , 'processed') ,
+(4 , '2025-12-01' , 2 , 'processed') ,
+(5 , '2026-03-05' , 1 , 'new') ,
+(1 , '2026-03-05' , 1 , 'new') ,
+(2 , '2026-01-10' , 2 , 'processed') ,
+(3, '2026-03-05', 3, 'processed');
+
+INSERT INTO philately.request_items ( request_id , product_id , quantity ) VALUES
+(1 , 1 , 120) , (1 , 3 , 80) ,
+(2 , 1 , 100) , (2 , 4 , 60) ,
+(3 , 2 , 90) , (3 , 5 , 30) ,
+(4 , 1 , 40) , (4 , 6 , 15) ,
+(5 , 3 , 150) , (5 , 2 , 110) ,
+(6 , 1 , 70) , (6 , 5 , 25) ,
+(7 , 2 , 50) , (7 , 3 , 20) ,
+(8 , 1 , 115) , (8 , 3 , 85) ,
+(8, 1 , 105) , (8 , 4 , 65);

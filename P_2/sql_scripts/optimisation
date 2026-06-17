@@ -1,0 +1,97 @@
+CREATE OR REPLACE VIEW philately.v_fp_most_and_least_popular AS
+WITH fp_type_number_date AS (
+    SELECT 
+        ft.type_name,
+        COUNT(DISTINCT r.request_id) AS request_number,
+        MAX(r.request_date) AS last_request_date
+    FROM philately.fp_types ft
+    JOIN philately.philatelic_products pp
+        ON pp.fp_type_id = ft.fp_type_id
+    JOIN philately.request_items ri
+        ON ri.product_id = pp.product_id
+    JOIN philately.requests r
+        ON r.request_id = ri.request_id
+    GROUP BY ft.type_name
+),
+ranked AS (
+    SELECT
+        type_name,
+        request_number,
+        last_request_date,
+        ROW_NUMBER() OVER (ORDER BY request_number ASC, type_name) AS min_request_number,
+        ROW_NUMBER() OVER (ORDER BY request_number DESC, type_name) AS max_request_number
+    FROM fp_type_number_date
+)
+SELECT
+    type_name,
+    request_number,
+    last_request_date
+FROM ranked
+WHERE max_request_number = 1
+   OR min_request_number = 1
+ORDER BY request_number DESC;
+
+
+EXPLAIN ANALYSE
+SELECT *
+FROM philately.v_fp_most_and_least_popular;
+
+
+
+CREATE OR REPLACE VIEW philately.v_fp_most_and_least_popular_opt AS
+WITH request_type AS (
+    SELECT DISTINCT
+           pp.fp_type_id,
+           ri.request_id
+    FROM philately.request_items ri
+    JOIN philately.philatelic_products pp
+      ON pp.product_id = ri.product_id
+),
+fp_type_number_date AS (
+    SELECT
+        ft.type_name,
+        COUNT(*) AS request_number,
+        MAX(r.request_date) AS last_request_date
+    FROM request_type rt
+    JOIN philately.fp_types ft
+      ON ft.fp_type_id = rt.fp_type_id
+    JOIN philately.requests r
+      ON r.request_id = rt.request_id
+    GROUP BY ft.type_name
+),
+extremes AS (
+    (SELECT type_name, request_number, last_request_date
+     FROM fp_type_number_date
+     ORDER BY request_number DESC
+     LIMIT 1)
+    UNION
+    (SELECT type_name, request_number, last_request_date
+     FROM fp_type_number_date
+     ORDER BY request_number ASC
+     LIMIT 1)
+)
+SELECT type_name, request_number, last_request_date
+FROM extremes
+ORDER BY request_number DESC;
+
+
+EXPLAIN ANALYSE
+SELECT *
+FROM philately.v_fp_most_and_least_popular_opt;
+
+
+CREATE INDEX IF NOT EXISTS idx_request_items_product_request
+    ON philately.request_items (product_id);
+
+CREATE INDEX IF NOT EXISTS idx_philatelic_products_product_type
+    ON philately.philatelic_products (product_id);
+
+CREATE INDEX IF NOT EXISTS idx_requests_request_id
+ON philately.requests (request_id);
+
+
+DROP INDEX IF EXISTS philately.idx_request_items_product_request;
+DROP INDEX IF EXISTS philately.idx_request_items_request_id;
+DROP INDEX IF EXISTS philately.idx_philatelic_products_product_type;
+DROP INDEX IF EXISTS philately.idx_requests_request_id;
+
